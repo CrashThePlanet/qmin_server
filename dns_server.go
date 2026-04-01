@@ -98,7 +98,6 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 
 		probesMutex.Lock()
 		probe, ok := probes[idToken]
-		probesMutex.Unlock()
 
 		if ok {
 			for _, tok := range tokens {
@@ -142,9 +141,7 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 			probesMutex.Unlock()
 		}
 
-		probesMutex.Lock()
 		probe = probes[idToken]
-		probesMutex.Unlock()
 
 		if len(probe.tokens) == probe.tokenLength {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
@@ -153,6 +150,7 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 			m.Answer = append(m.Answer, rr)
 		}
+		probesMutex.Unlock()
 	}
 
 	if err := w.WriteMsg(m); err != nil {
