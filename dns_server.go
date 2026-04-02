@@ -89,6 +89,8 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 	m.SetReply(r)
 	m.Authoritative = true
 
+	fmt.Println(r.Question[0].Name)
+
 	if len(r.Question[0].Name) <= len(baseURL) || !strings.Contains(strings.ToLower(r.Question[0].Name), baseURL) {
 		m.SetRcode(r, dns.RcodeNameError)
 	} else {
@@ -98,18 +100,15 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 
 		probesMutex.Lock()
 		probe, ok := probes[idToken]
+		probesMutex.Unlock()
 
 		if ok {
 			for _, tok := range tokens {
 				probe.tokens[tok] = true
 			}
 			if strings.Join(probe.tokenSequence, ".") != tokenSeq {
-				if len(tokenSeq) > len(strings.Join(probe.tokenSequence, ".")) {
-					fmt.Println(r.Question[0])
-					fmt.Println(tokenSeq, " ", probe.tokenSequence)
-					newTokens := tokenSeq[:len(tokenSeq)-len(strings.Join(probe.tokenSequence, "."))-1]
-					probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newTokens)
-				}
+				newTokens := tokenSeq[:len(tokenSeq)-len(strings.Join(probe.tokenSequence, "."))-1]
+				probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newTokens)
 			}
 			probe.lastSeen = time.Now()
 
@@ -140,8 +139,9 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 			}
 			probesMutex.Unlock()
 		}
-
+		probesMutex.Lock()
 		probe = probes[idToken]
+		probesMutex.Unlock()
 
 		if len(probe.tokens) == probe.tokenLength {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
@@ -150,7 +150,6 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 			m.Answer = append(m.Answer, rr)
 		}
-		probesMutex.Unlock()
 	}
 
 	if err := w.WriteMsg(m); err != nil {
