@@ -107,6 +107,13 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 				probe.tokens[tok] = true
 			}
 			if strings.Join(probe.tokenSequence, ".") != tokenSeq {
+				if len(tokenSeq) < len(strings.Join(probe.tokenSequence, "."))-1 {
+					fmt.Println("Request Domain: ", r.Question[0].Name)
+					fmt.Println("tokens: ", tokens)
+					fmt.Println("idToken: ", idToken)
+					fmt.Println("tokenSeq: ", tokenSeq)
+					fmt.Println("probe TokenSeq: ", probe.tokenSequence)
+				}
 				newTokens := tokenSeq[:len(tokenSeq)-len(strings.Join(probe.tokenSequence, "."))-1]
 				probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newTokens)
 			}
