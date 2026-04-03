@@ -89,7 +89,7 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 	m.SetReply(r)
 	m.Authoritative = true
 
-	fmt.Println(r.Question[0].Name)
+	//	fmt.Println(r.Question[0].Name)
 
 	if len(r.Question[0].Name) <= len(baseURL) || !strings.Contains(strings.ToLower(r.Question[0].Name), baseURL) {
 		m.SetRcode(r, dns.RcodeNameError)
@@ -153,6 +153,9 @@ func testA(w dns.ResponseWriter, r *dns.Msg) {
 		if len(probe.tokens) == probe.tokenLength {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 			m.Answer = append(m.Answer, rr)
+			probesMutex.Lock()
+			delete(probes, idToken)
+			probesMutex.Unlock()
 		} else {
 			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 			m.Answer = append(m.Answer, rr)
