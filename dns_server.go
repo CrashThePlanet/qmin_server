@@ -119,8 +119,11 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
 			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
 
+			var test = sync.RWMutex{}
 			for _, tok := range tokens {
+				test.Lock()
 				probe.tokens[tok] = true
+				test.Unlock()
 			}
 			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
 		}
