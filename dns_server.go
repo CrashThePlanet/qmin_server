@@ -84,95 +84,107 @@ func getPublicIP() string {
 	return ip.Query
 }
 
-func testA(w dns.ResponseWriter, r *dns.Msg) {
+func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Authoritative = true
 
-	//	fmt.Println(r.Question[0].Name)
+	requestedDomain := strings.ToLower(r.Question[0].Name)
 
-	if len(r.Question[0].Name) <= len(baseURL) || !strings.Contains(strings.ToLower(r.Question[0].Name), baseURL) {
+	// check if requested Domain ist longer than base domain and ends in the base domain
+	if len(requestedDomain) <= len(baseURL) || requestedDomain[len(requestedDomain)-len(baseURL):] != baseURL {
 		m.SetRcode(r, dns.RcodeNameError)
-	} else {
-		tokenSeq := r.Question[0].Name[:len(r.Question[0].Name)-len(baseURL)-1]
-		tokens := strings.Split(tokenSeq, ".")
-		idToken := tokens[len(tokens)-1]
+		return w, m
+	}
 
-		probesMutex.Lock()
-		probe, ok := probes[idToken]
-		probesMutex.Unlock()
+	tokenSeq := requestedDomain[:len(requestedDomain)-len(baseURL)-1]
+	tokens := strings.Split(tokenSeq, ".")
+	idToken := tokens[len(tokens)-1]
 
-		if ok {
-			for _, tok := range tokens {
+	// TODO: check for valid id token
+	if len(idToken) < 10 {
+		m.SetRcode(r, dns.RcodeRefused)
+		return w, m
+	}
+
+	probesMutex.Lock()
+	probe, ok := probes[idToken]
+	probesMutex.Unlock()
+
+	if ok {
+		probeDomain := strings.Join(probe.tokenSequence, ".")
+
+		// new request is longer than the longest recorded one and contains said longest --> more information
+		// should occur if qmin is used
+		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
+			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
+			newTokens := strings.Split(newSeq, ".")
+
+			for _, tok := range newTokens {
 				probe.tokens[tok] = true
 			}
-			if strings.Join(probe.tokenSequence, ".") != tokenSeq {
-				if len(tokenSeq) < len(strings.Join(probe.tokenSequence, "."))-1 {
-					fmt.Println("Request Domain: ", r.Question[0].Name)
-					fmt.Println("tokens: ", tokens)
-					fmt.Println("idToken: ", idToken)
-					fmt.Println("tokenSeq: ", tokenSeq)
-					fmt.Println("probe TokenSeq: ", probe.tokenSequence)
-				}
-				newTokens := tokenSeq[:len(tokenSeq)-len(strings.Join(probe.tokenSequence, "."))-1]
-				probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newTokens)
-			}
-			probe.lastSeen = time.Now()
-
-			probesMutex.Lock()
-			probes[idToken] = probe
-			probesMutex.Unlock()
-		} else if len(idToken) > 10 {
-			// Token to identify the probe run:
-			// XXXXXXXX | XX | XXXX... (pipes just for visualisation)
-			// IPv4 of Resolver (Hex) | max token depth (int) | randomized numbers to circumvent caches (length loosly dependent on number of runs per resolver)
-
-			tokenLen, err := strconv.ParseInt(idToken[8:10], 10, 64)
-			if err != nil {
-				fmt.Println(idToken)
-				log.Fatalf("Couldn't parse token length: %v", err.Error())
-			}
-			t := make(map[string]bool)
-			for _, tok := range tokens {
-				t[tok] = true
-			}
-			probesMutex.Lock()
-			probes[idToken] = probeData{
-				Resolver:      ipFromHexString(idToken[0:8]),
-				tokenLength:   int(tokenLen),
-				lastSeen:      time.Now(),
-				tokenSequence: []string{tokenSeq},
-				tokens:        t,
-			}
-			probesMutex.Unlock()
+			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
 		}
-		probesMutex.Lock()
-		probe = probes[idToken]
-		probesMutex.Unlock()
 
-		if len(probe.tokens) == probe.tokenLength {
-			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
-			m.Answer = append(m.Answer, rr)
-			probesMutex.Lock()
-			delete(probes, idToken)
-			probesMutex.Unlock()
-		} else {
-			rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
-			m.Answer = append(m.Answer, rr)
+		probe.lastSeen = time.Now()
+	} else {
+		// first time this domain is requested
+		// create entry in probes map
+
+		// Token to identify the probe run:
+		// XXXXXXXX | XX | XXXX... (pipes just for visualisation)
+		// IPv4 of Resolver (Hex) | max token depth (int) | randomized numbers to circumvent caches (length loosly dependent on number of runs per resolver)
+
+		tokenLen, err := strconv.ParseInt(idToken[8:10], 10, 64)
+		if err != nil {
+			log.Fatalf("Couldn't parse token length: %v", err.Error())
+		}
+		t := make(map[string]bool)
+		for _, tok := range tokens {
+			t[tok] = true
+		}
+		probe = probeData{
+			Resolver:      ipFromHexString(idToken[0:8]),
+			tokenLength:   int(tokenLen),
+			lastSeen:      time.Now(),
+			tokenSequence: []string{tokenSeq},
+			tokens:        t,
 		}
 	}
+
+	if len(probe.tokens) == probe.tokenLength {
+		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
+		m.Answer = append(m.Answer, rr)
+
+		probesMutex.Lock()
+		delete(probes, idToken)
+		probesMutex.Unlock()
+	} else {
+		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
+		m.Answer = append(m.Answer, rr)
+
+		probesMutex.Lock()
+		probes[idToken] = probe
+		probesMutex.Unlock()
+	}
+
+	cleanProbes()
+	return w, m
+}
+
+func responder(w dns.ResponseWriter, r *dns.Msg) {
+	var m *dns.Msg
+	w, m = requestResponse(w, r)
 
 	if err := w.WriteMsg(m); err != nil {
 		log.Fatalf("Write error: %v", err.Error())
 	}
-
-	cleanProbes()
 }
 
 func main() {
 	ip = getPublicIP()
 
-	dns.HandleFunc(".", testA)
+	dns.HandleFunc(".", responder)
 	server := &dns.Server{Addr: addr + ":" + strconv.Itoa(port), Net: "udp"}
 	fmt.Println("DNS server listining on:", addr, ":", port)
 	if err := server.ListenAndServe(); err != nil {
