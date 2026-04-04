@@ -118,9 +118,8 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		// should occur if qmin is used
 		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
 			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
-			newTokens := strings.Split(newSeq, ".")
 
-			for _, tok := range newTokens {
+			for _, tok := range tokens {
 				probe.tokens[tok] = true
 			}
 			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
