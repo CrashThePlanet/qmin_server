@@ -32,7 +32,8 @@ type probeData struct {
 	tokenLength   int
 	lastSeen      time.Time
 	tokenSequence []string
-	tokens        map[string]bool
+	tokens        *sync.Map
+	currTokenNum  int
 }
 
 var (
@@ -109,7 +110,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	probesMutex.Lock()
 	probe, ok := probes[idToken]
-	probesMutex.Unlock()
 
 	if ok {
 		probeDomain := strings.Join(probe.tokenSequence, ".")
@@ -119,11 +119,10 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
 			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
 
-			var test = sync.RWMutex{}
+			probe.currTokenNum = 0
 			for _, tok := range tokens {
-				test.Lock()
-				probe.tokens[tok] = true
-				test.Unlock()
+				probe.tokens.Store(tok, true)
+				probe.currTokenNum++
 			}
 			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
 		}
@@ -141,20 +140,24 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		if err != nil {
 			log.Fatalf("Couldn't parse token length: %v", err.Error())
 		}
-		t := make(map[string]bool)
+		var t sync.Map
+		numTokens := 0
 		for _, tok := range tokens {
-			t[tok] = true
+			t.Store(tok, true)
+			numTokens++
 		}
 		probe = probeData{
 			Resolver:      ipFromHexString(idToken[0:8]),
 			tokenLength:   int(tokenLen),
 			lastSeen:      time.Now(),
 			tokenSequence: []string{tokenSeq},
-			tokens:        t,
+			tokens:        &t,
+			currTokenNum:  numTokens,
 		}
 	}
+	probesMutex.Unlock()
 
-	if len(probe.tokens) == probe.tokenLength {
+	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
 
