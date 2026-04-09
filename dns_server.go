@@ -43,6 +43,7 @@ var (
 
 func cleanProbes() {
 	probesMutex.Lock()
+	fmt.Println("len before clean:", len(probes))
 	lastClean = time.Now()
 	if time.Since(lastClean).Milliseconds() > sleepCycle {
 		for k, v := range probes {
@@ -51,6 +52,7 @@ func cleanProbes() {
 			}
 		}
 	}
+	fmt.Println("len after clean:", len(probes))
 	probesMutex.Unlock()
 }
 
@@ -85,6 +87,7 @@ func getPublicIP() string {
 	return ip.Query
 }
 
+// handle incoming dns request
 func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
@@ -92,7 +95,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	requestedDomain := strings.ToLower(r.Question[0].Name)
 
-	// check if requested Domain ist longer than base domain and ends in the base domain
+	// check if requested Domain is longer than base domain and ends in the base domain
 	if len(requestedDomain) <= len(baseURL) || requestedDomain[len(requestedDomain)-len(baseURL):] != baseURL {
 		m.SetRcode(r, dns.RcodeNameError)
 		return w, m
@@ -111,11 +114,14 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	probesMutex.Lock()
 	probe, ok := probes[idToken]
 
+	// check if this probe (identified by id Token) has sent a request before
 	if ok {
 		probeDomain := strings.Join(probe.tokenSequence, ".")
 
-		// new request is longer than the longest recorded one and contains said longest --> more information
+		// new request is longer than the longest recorded one and contains said longest requested domain --> more information
 		// should occur if qmin is used
+		// some RR are sending shorter domains inbetween longer ones
+		// i've seen one that even does qmin inverse (so send fqdn first und remove one label with each successive request) -> idk why?!
 		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
 			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
 
@@ -126,13 +132,12 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 			}
 			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
 		}
-
 		probe.lastSeen = time.Now()
 	} else {
 		// first time this domain is requested
 		// create entry in probes map
 
-		// Token to identify the probe run:
+		// Label to identify the probe run:
 		// XXXXXXXX | XX | XXXX... (pipes just for visualisation)
 		// IPv4 of Resolver (Hex) | max token depth (int) | randomized numbers to circumvent caches (length loosly dependent on number of runs per resolver)
 
@@ -160,10 +165,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
-
-		probesMutex.Lock()
-		delete(probes, idToken)
-		probesMutex.Unlock()
 	} else {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 		m.Answer = append(m.Answer, rr)
