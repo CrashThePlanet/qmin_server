@@ -94,6 +94,12 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	requestedDomain := strings.ToLower(r.Question[0].Name)
 	fmt.Println(requestedDomain)
+	// some resolver prepend "_." to each request (except the fqdn with all tokens)
+	// it can be removed as this carries no information or significance
+	if requestedDomain[:2] == "_." {
+		requestedDomain = requestedDomain[2:]
+	}
+	fmt.Println(requestedDomain)
 
 	// check if requested Domain is longer than base domain and ends in the base domain
 	if len(requestedDomain) <= len(baseURL) || requestedDomain[len(requestedDomain)-len(baseURL):] != baseURL {
