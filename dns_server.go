@@ -93,13 +93,11 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	m.Authoritative = true
 
 	requestedDomain := strings.ToLower(r.Question[0].Name)
-	fmt.Println(requestedDomain)
 	// some resolver prepend "_." to each request (except the fqdn with all tokens)
 	// it can be removed as this carries no information or significance
 	if requestedDomain[:2] == "_." {
 		requestedDomain = requestedDomain[2:]
 	}
-	fmt.Println(requestedDomain)
 
 	// check if requested Domain is longer than base domain and ends in the base domain
 	if len(requestedDomain) <= len(baseURL) || requestedDomain[len(requestedDomain)-len(baseURL):] != baseURL {
@@ -136,7 +134,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 				probe.tokens.Store(tok, true)
 				probe.currTokenNum++
 			}
-			//	fmt.Println("newSeq:", newSeq)
 			// force copy of tokenSequence slice
 			// some Resolver send the last request (the entiry requested sequence) twice (or more)
 			// for some reason the last label/token (the idToken) disappears inbetween these 2 requests
@@ -179,11 +176,9 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	}
 	probesMutex.Unlock()
 
-	fmt.Println(probe.currTokenNum == probe.tokenLength)
 	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
-		fmt.Println(m.Answer)
 	} else {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 		m.Answer = append(m.Answer, rr)
