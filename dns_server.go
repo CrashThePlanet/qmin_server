@@ -43,16 +43,15 @@ var (
 
 func cleanProbes() {
 	probesMutex.Lock()
-	fmt.Println("len before clean:", len(probes))
-	lastClean = time.Now()
 	if time.Since(lastClean).Milliseconds() > sleepCycle {
 		for k, v := range probes {
 			if time.Since(v.lastSeen).Milliseconds() > timeout {
+				fmt.Println("delete old probe entry")
 				delete(probes, k)
 			}
 		}
 	}
-	fmt.Println("len after clean:", len(probes))
+	lastClean = time.Now()
 	probesMutex.Unlock()
 }
 
@@ -94,6 +93,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	m.Authoritative = true
 
 	requestedDomain := strings.ToLower(r.Question[0].Name)
+	fmt.Println(requestedDomain)
 
 	// check if requested Domain is longer than base domain and ends in the base domain
 	if len(requestedDomain) <= len(baseURL) || requestedDomain[len(requestedDomain)-len(baseURL):] != baseURL {
@@ -130,7 +130,18 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 				probe.tokens.Store(tok, true)
 				probe.currTokenNum++
 			}
-			probe.tokenSequence = slices.Insert(probe.tokenSequence, 0, newSeq)
+			//	fmt.Println("newSeq:", newSeq)
+			// force copy of tokenSequence slice
+			// some Resolver send the last request (the entiry requested sequence) twice (or more)
+			// for some reason the last label/token (the idToken) disappears inbetween these 2 requests
+			// the forced copy solves this
+			// it should not be a concurrency problem, as the entire block is inside a mutex ?!
+			// do not touch
+			s := append([]string(nil), probe.tokenSequence...)
+			s = slices.Insert(s, 0, newSeq)
+			probe.tokenSequence = s
+			// end
+
 		}
 		probe.lastSeen = time.Now()
 	} else {
@@ -162,9 +173,11 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	}
 	probesMutex.Unlock()
 
+	fmt.Println(probe.currTokenNum == probe.tokenLength)
 	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
+		fmt.Println(m.Answer)
 	} else {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 		m.Answer = append(m.Answer, rr)
