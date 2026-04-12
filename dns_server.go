@@ -18,8 +18,8 @@ import (
 const baseURL string = "ba.tilhempel.info."
 const addr = "0.0.0.0"
 const port = 53
-const timeout = 5000     // in ms
-const sleepCycle = 10000 // in ms
+const timeout = 5100    // in ms
+const sleepCycle = 1000 // in ms
 
 var ip string
 var lastClean time.Time
@@ -46,7 +46,7 @@ func cleanProbes() {
 	if time.Since(lastClean).Milliseconds() > sleepCycle {
 		for k, v := range probes {
 			if time.Since(v.lastSeen).Milliseconds() > timeout {
-				fmt.Println("delete old probe entry")
+				fmt.Println("delete old probe entry. New length:", len(probes))
 				delete(probes, k)
 			}
 		}
