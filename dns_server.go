@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	// _ "net/http/pprof"
 )
 
 const baseURL string = "ba.tilhempel.info."
@@ -32,7 +33,6 @@ type probeData struct {
 	tokenLength   int
 	lastSeen      time.Time
 	tokenSequence []string
-	tokens        *sync.Map
 	currTokenNum  int
 }
 
@@ -129,11 +129,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		if len(probeDomain) < len(tokenSeq) && strings.Contains(tokenSeq, probeDomain) {
 			newSeq := tokenSeq[:len(tokenSeq)-len(probeDomain)-1]
 
-			probe.currTokenNum = 0
-			for _, tok := range tokens {
-				probe.tokens.Store(tok, true)
-				probe.currTokenNum++
-			}
+			probe.currTokenNum = len(tokens)
 			// force copy of tokenSequence slice
 			// some Resolver send the last request (the entiry requested sequence) twice (or more)
 			// for some reason the last label/token (the idToken) disappears inbetween these 2 requests
@@ -143,6 +139,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 			s := append([]string(nil), probe.tokenSequence...)
 			s = slices.Insert(s, 0, newSeq)
 			probe.tokenSequence = s
+			s = nil
 			// end
 
 		}
@@ -159,19 +156,12 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		if err != nil {
 			log.Fatalf("Couldn't parse token length: %v", err.Error())
 		}
-		var t sync.Map
-		numTokens := 0
-		for _, tok := range tokens {
-			t.Store(tok, true)
-			numTokens++
-		}
 		probe = probeData{
 			Resolver:      ipFromHexString(idToken[0:8]),
 			tokenLength:   int(tokenLen),
 			lastSeen:      time.Now(),
 			tokenSequence: []string{tokenSeq},
-			tokens:        &t,
-			currTokenNum:  numTokens,
+			currTokenNum:  len(tokens),
 		}
 	}
 	probesMutex.Unlock()
@@ -179,9 +169,11 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
+		rr = nil
 	} else {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 		m.Answer = append(m.Answer, rr)
+		rr = nil
 
 		probesMutex.Lock()
 		probes[idToken] = probe
@@ -199,10 +191,15 @@ func responder(w dns.ResponseWriter, r *dns.Msg) {
 	if err := w.WriteMsg(m); err != nil {
 		log.Fatalf("Write error: %v", err.Error())
 	}
+	w.Close()
 }
 
 func main() {
-	ip = getPublicIP()
+	ip = "217.235.200.22"
+
+	// go func() {
+	// log.Print(http.ListenAndServe(":1234", nil))
+	// }()
 
 	dns.HandleFunc(".", responder)
 	server := &dns.Server{Addr: addr + ":" + strconv.Itoa(port), Net: "udp"}
