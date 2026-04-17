@@ -1,11 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,7 +26,6 @@ type IP struct {
 	Query string
 }
 type probeData struct {
-	Resolver      string
 	tokenLength   int
 	lastSeen      time.Time
 	tokenSequence []string
@@ -55,6 +51,7 @@ func cleanProbes() {
 	probesMutex.Unlock()
 }
 
+/*
 func ipFromHexString(s string) string {
 	if len(s) != 8 {
 		log.Fatalln("String provided is not an hex encoded ip")
@@ -84,7 +81,7 @@ func getPublicIP() string {
 	var ip IP
 	json.Unmarshal(res, &ip)
 	return ip.Query
-}
+}*/
 
 // handle incoming dns request
 func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns.Msg) {
@@ -117,6 +114,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	probesMutex.Lock()
 	probe, ok := probes[idToken]
+	probesMutex.Lock()
 
 	// check if this probe (identified by id Token) has sent a request before
 	if ok {
@@ -157,13 +155,15 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 			log.Fatalf("Couldn't parse token length: %v", err.Error())
 		}
 		probe = probeData{
-			Resolver:      ipFromHexString(idToken[0:8]),
 			tokenLength:   int(tokenLen),
 			lastSeen:      time.Now(),
 			tokenSequence: []string{tokenSeq},
 			currTokenNum:  len(tokens),
 		}
 	}
+
+	probesMutex.Lock()
+	probes[idToken] = probe
 	probesMutex.Unlock()
 
 	if probe.currTokenNum == probe.tokenLength {
@@ -175,11 +175,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 		m.Answer = append(m.Answer, rr)
 		rr = nil
 
-		probesMutex.Lock()
-		probes[idToken] = probe
-		probesMutex.Unlock()
 	}
-
 	cleanProbes()
 	return w, m
 }
