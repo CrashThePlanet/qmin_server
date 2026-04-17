@@ -9,15 +9,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miekg/dns"
 	// _ "net/http/pprof"
+
+	"github.com/miekg/dns"
 )
 
 const baseURL string = "ba.tilhempel.info."
 const addr = "0.0.0.0"
 const port = 53
-const timeout = 5100    // in ms
-const sleepCycle = 1000 // in ms
+const timeout = 5100     // in ms
+const sleepCycle = 10000 // in ms
 
 var ip string
 var lastClean time.Time
@@ -38,17 +39,19 @@ var (
 )
 
 func cleanProbes() {
-	probesMutex.Lock()
-	if time.Since(lastClean).Milliseconds() > sleepCycle {
-		for k, v := range probes {
-			if time.Since(v.lastSeen).Milliseconds() > timeout {
-				fmt.Println("delete old probe entry. New length:", len(probes))
-				delete(probes, k)
+	for true {
+		if time.Since(lastClean).Milliseconds() > sleepCycle {
+			probesMutex.Lock()
+			for k, v := range probes {
+				if time.Since(v.lastSeen).Milliseconds() > timeout {
+					fmt.Println("delete old probe entry. New length:", len(probes))
+					delete(probes, k)
+				}
 			}
+			probesMutex.Unlock()
+			lastClean = time.Now()
 		}
 	}
-	lastClean = time.Now()
-	probesMutex.Unlock()
 }
 
 /*
@@ -114,7 +117,7 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	probesMutex.Lock()
 	probe, ok := probes[idToken]
-	probesMutex.Lock()
+	probesMutex.Unlock()
 
 	// check if this probe (identified by id Token) has sent a request before
 	if ok {
@@ -137,7 +140,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 			s := append([]string(nil), probe.tokenSequence...)
 			s = slices.Insert(s, 0, newSeq)
 			probe.tokenSequence = s
-			s = nil
 			// end
 
 		}
@@ -169,14 +171,11 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 	if probe.currTokenNum == probe.tokenLength {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN TXT \"%s\"", r.Question[0].Name, strings.Join(probe.tokenSequence, "|")))
 		m.Answer = append(m.Answer, rr)
-		rr = nil
 	} else {
 		rr, _ := dns.NewRR(fmt.Sprintf("%s 3600 IN A %s", r.Question[0].Name, ip))
 		m.Answer = append(m.Answer, rr)
-		rr = nil
 
 	}
-	cleanProbes()
 	return w, m
 }
 
@@ -191,13 +190,14 @@ func responder(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func main() {
-	ip = "217.235.200.22"
+	ip = ""
 
 	// go func() {
-	// log.Print(http.ListenAndServe(":1234", nil))
+	// 	log.Print(http.ListenAndServe(":1234", nil))
 	// }()
 
 	dns.HandleFunc(".", responder)
+	go cleanProbes()
 	server := &dns.Server{Addr: addr + ":" + strconv.Itoa(port), Net: "udp"}
 	fmt.Println("DNS server listining on:", addr, ":", port)
 	if err := server.ListenAndServe(); err != nil {
