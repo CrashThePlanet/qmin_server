@@ -40,17 +40,15 @@ var (
 
 func cleanProbes() {
 	for true {
-		if time.Since(lastClean).Milliseconds() > sleepCycle {
-			probesMutex.Lock()
-			for k, v := range probes {
-				if time.Since(v.lastSeen).Milliseconds() > timeout {
-					fmt.Println("delete old probe entry. New length:", len(probes))
-					delete(probes, k)
-				}
+		probesMutex.Lock()
+		for k, v := range probes {
+			if time.Since(v.lastSeen).Milliseconds() > timeout {
+				fmt.Println("delete old probe entry. New length:", len(probes))
+				delete(probes, k)
 			}
-			probesMutex.Unlock()
-			lastClean = time.Now()
 		}
+		probesMutex.Unlock()
+		time.Sleep(sleepCycle * time.Millisecond)
 	}
 }
 
