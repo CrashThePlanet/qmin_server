@@ -115,7 +115,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 
 	probesMutex.Lock()
 	probe, ok := probes[idToken]
-	probesMutex.Unlock()
 
 	// check if this probe (identified by id Token) has sent a request before
 	if ok {
@@ -161,8 +160,6 @@ func requestResponse(w dns.ResponseWriter, r *dns.Msg) (dns.ResponseWriter, *dns
 			currTokenNum:  len(tokens),
 		}
 	}
-
-	probesMutex.Lock()
 	probes[idToken] = probe
 	probesMutex.Unlock()
 
